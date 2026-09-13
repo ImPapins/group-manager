@@ -1,0 +1,77 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "Registered app user",
+      "type": "object",
+      "properties": {
+        "username": { "type": "string" },
+        "displayName": { "type": "string" },
+        "passwordHash": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["username", "displayName", "passwordHash"]
+    },
+    "Group": {
+      "title": "Group",
+      "description": "Shared group",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "description": { "type": "string" },
+        "creatorUsername": { "type": "string" },
+        "creatorDisplayName": { "type": "string" },
+        "members": { "type": "array" },
+        "memberDetails": { "type": "object" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["name", "creatorUsername", "members"]
+    },
+    "GroupEvent": {
+      "title": "GroupEvent",
+      "description": "Group calendar schedule event",
+      "type": "object",
+      "properties": {
+        "groupId": { "type": "string" },
+        "title": { "type": "string" },
+        "startDate": { "type": "string" },
+        "endDate": { "type": "string" },
+        "category": { "type": "string" },
+        "authorUsername": { "type": "string" }
+      },
+      "required": ["groupId", "title", "startDate", "endDate", "authorUsername"]
+    },
+    "GroupChecklist": {
+      "title": "GroupChecklist",
+      "description": "Group calendar checklist item with weekly tracking",
+      "type": "object",
+      "properties": {
+        "groupId": { "type": "string" },
+        "title": { "type": "string" },
+        "targetPerWeek": { "type": "number" },
+        "color": { "type": "string" },
+        "creatorUsername": { "type": "string" },
+        "completedDates": { "type": "array" }
+      },
+      "required": ["groupId", "title", "targetPerWeek", "creatorUsername"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "Registered users by username"
+    },
+    "/groups/{groupId}": {
+      "schema": "Group",
+      "description": "Shared groups"
+    },
+    "/group_events/{eventId}": {
+      "schema": "GroupEvent",
+      "description": "Calendar schedule events"
+    },
+    "/group_checklists/{checklistId}": {
+      "schema": "GroupChecklist",
+      "description": "Calendar checklists with weekly progress tracking"
+    }
+  }
+}

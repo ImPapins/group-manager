@@ -1,0 +1,6 @@
+{
+  "name": "공유 일정 관리",
+  "description": "아이디 기반 그룹 생성, 공용 달력 및 주기적(주/월) 자동 초기화 대시보드 시스템",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

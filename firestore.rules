@@ -1,0 +1,32 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Users collection
+    match /users/{userId} {
+      allow read, write: if true;
+    }
+
+    // Groups collection and subcollections (calendar events, dashboards, records)
+    match /groups/{groupId} {
+      allow read, write: if true;
+      match /{allSubcollections=**} {
+        allow read, write: if true;
+      }
+    }
+
+    match /group_events/{eventId} {
+      allow read, write: if true;
+    }
+
+    match /group_checklists/{checklistId} {
+      allow read, write: if true;
+    }
+
+    match /group_dashboards/{dashboardId} {
+      allow read, write: if true;
+      match /{allSub=**} {
+        allow read, write: if true;
+      }
+    }
+  }
+}
