@@ -11,8 +11,11 @@ import {
   AlertCircle, 
   Loader2, 
   Sparkles, 
-  Award,
-  RotateCcw,
+  Award, 
+  CalendarDays,
+  Target,
+  BarChart3,
+  CalendarRange,
   X
 } from 'lucide-react';
 import { 
@@ -29,7 +32,9 @@ import type { Group, GroupCalendarChecklist } from '../types';
 import { 
   toDateString, 
   getWeekDates, 
-  getPeriodInfo 
+  getPeriodInfo,
+  getMonthCalendarMatrix,
+  padZero
 } from '../utils/dateUtils';
 import { CATEGORY_COLORS } from './GroupCalendar';
 
@@ -49,13 +54,22 @@ export default function CalendarChecklistView({
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Active week reference date (defaults to current date)
+  // Active dates for week and month tracking
   const [activeWeekDate, setActiveWeekDate] = useState<Date>(new Date());
+  const [activeMonthDate, setActiveMonthDate] = useState<Date>(new Date());
+
+  // View Mode: 'both' (주간+월간), 'weekly' (주간 중심), 'monthly' (월간 중심)
+  const [activeViewMode, setActiveViewMode] = useState<'both' | 'weekly' | 'monthly'>('both');
+
+  // Expanded monthly mini-calendar for specific item
+  const [expandedMonthItemId, setExpandedMonthItemId] = useState<string | null>(null);
 
   // Create Modal State
   const [isCreateModalOpen, setIsCreateModalOpen] = useState<boolean>(false);
   const [newTitle, setNewTitle] = useState<string>('');
+  const [newTargetType, setNewTargetType] = useState<'both' | 'weekly' | 'monthly'>('both');
   const [newTargetPerWeek, setNewTargetPerWeek] = useState<number>(3);
+  const [newTargetWeeksPerMonth, setNewTargetWeeksPerMonth] = useState<number>(4);
   const [newCategory, setNewCategory] = useState<string>('');
   const [newColor, setNewColor] = useState<string>('emerald');
   const [isCreating, setIsCreating] = useState<boolean>(false);
@@ -64,13 +78,12 @@ export default function CalendarChecklistView({
   // Edit Modal State
   const [editingItem, setEditingItem] = useState<GroupCalendarChecklist | null>(null);
   const [editTitle, setEditTitle] = useState<string>('');
+  const [editTargetType, setEditTargetType] = useState<'both' | 'weekly' | 'monthly'>('both');
   const [editTargetPerWeek, setEditTargetPerWeek] = useState<number>(3);
+  const [editTargetWeeksPerMonth, setEditTargetWeeksPerMonth] = useState<number>(4);
   const [editCategory, setEditCategory] = useState<string>('');
   const [editColor, setEditColor] = useState<string>('emerald');
   const [isUpdating, setIsUpdating] = useState<boolean>(false);
-
-  // Filter option: 'all' or specific date string
-  const [viewModeFilter, setViewModeFilter] = useState<'all' | 'today' | 'selected'>('all');
 
   // Real-time listener for this group's checklists
   useEffect(() => {
@@ -84,11 +97,18 @@ export default function CalendarChecklistView({
         const list: GroupCalendarChecklist[] = [];
         snapshot.forEach((d) => {
           const data = d.data();
+          const targetW = Number(data.targetPerWeek) || 3;
+          const targetWeeksM = data.targetWeeksPerMonth
+            ? Number(data.targetWeeksPerMonth)
+            : (data.targetPerMonth ? Math.max(1, Math.min(5, Math.round(Number(data.targetPerMonth) / targetW))) : 4);
           list.push({
             id: d.id,
             groupId: group.id,
             title: data.title || '',
-            targetPerWeek: Number(data.targetPerWeek) || 3,
+            targetType: (data.targetType as 'weekly' | 'monthly' | 'both') || 'both',
+            targetPerWeek: targetW,
+            targetWeeksPerMonth: targetWeeksM,
+            targetPerMonth: Number(data.targetPerMonth) || (targetWeeksM * targetW),
             category: data.category || '',
             color: data.color || 'emerald',
             creatorUsername: data.creatorUsername || '',
@@ -116,10 +136,13 @@ export default function CalendarChecklistView({
   // Generate 7 days of the active week
   const weekDays = useMemo(() => getWeekDates(activeWeekDate), [activeWeekDate]);
   const weekDateStrings = useMemo(() => weekDays.map((d) => d.dateString), [weekDays]);
+  const weekInfo = useMemo(() => getPeriodInfo('weekly', activeWeekDate), [activeWeekDate]);
 
-  const weekInfo = useMemo(() => {
-    return getPeriodInfo('weekly', activeWeekDate);
-  }, [activeWeekDate]);
+  // Generate month info
+  const activeYear = activeMonthDate.getFullYear();
+  const activeMonth = activeMonthDate.getMonth(); // 0-indexed
+  const activeMonthPrefix = `${activeYear}-${padZero(activeMonth + 1)}`;
+  const monthInfo = useMemo(() => getPeriodInfo('monthly', activeMonthDate), [activeMonthDate]);
 
   const todayString = toDateString(new Date());
 
@@ -145,12 +168,35 @@ export default function CalendarChecklistView({
     return weekInfo.key === curInfo.key;
   }, [weekInfo.key]);
 
+  // Month navigation
+  const prevMonth = () => {
+    const prev = new Date(activeMonthDate);
+    prev.setMonth(prev.getMonth() - 1);
+    setActiveMonthDate(prev);
+  };
+
+  const nextMonth = () => {
+    const next = new Date(activeMonthDate);
+    next.setMonth(next.getMonth() + 1);
+    setActiveMonthDate(next);
+  };
+
+  const goCurrentMonth = () => {
+    setActiveMonthDate(new Date());
+  };
+
+  const isCurrentMonth = useMemo(() => {
+    const now = new Date();
+    return now.getFullYear() === activeYear && now.getMonth() === activeMonth;
+  }, [activeYear, activeMonth]);
+
   // Overall Weekly Completion stats calculation
-  const { totalWeekTarget, totalWeekCompleted, overallPercent } = useMemo(() => {
+  const { totalWeekTarget, totalWeekCompleted, overallWeekPercent } = useMemo(() => {
     let targetSum = 0;
     let completedSum = 0;
 
     checklists.forEach((item) => {
+      if (item.targetType === 'monthly') return;
       const itemCompletedInWeek = item.completedDates.filter((d) => weekDateStrings.includes(d)).length;
       targetSum += (item.targetPerWeek || 1);
       completedSum += itemCompletedInWeek;
@@ -160,9 +206,82 @@ export default function CalendarChecklistView({
     return {
       totalWeekTarget: targetSum,
       totalWeekCompleted: completedSum,
-      overallPercent: percent,
+      overallWeekPercent: percent,
     };
   }, [checklists, weekDateStrings]);
+
+  // Generate month days matrix for mini-calendar inspection
+  const monthMatrix = useMemo(() => {
+    return getMonthCalendarMatrix(activeYear, activeMonth);
+  }, [activeYear, activeMonth]);
+
+  // Weeks of the active month (chunk monthMatrix into 7-day rows, filter only weeks with active month days)
+  const monthWeeks = useMemo(() => {
+    const weeks: {
+      weekIndex: number;
+      weekNumber: number;
+      dateStrings: string[];
+      days: typeof monthMatrix;
+      rangeLabel: string;
+      isCurrentWeek: boolean;
+    }[] = [];
+
+    const totalWeeks = Math.ceil(monthMatrix.length / 7);
+    let weekCounter = 1;
+
+    for (let i = 0; i < totalWeeks; i++) {
+      const weekDays = monthMatrix.slice(i * 7, (i + 1) * 7);
+      const activeDays = weekDays.filter((d) => d.isCurrentMonth);
+      if (activeDays.length === 0) continue;
+
+      const firstActive = activeDays[0];
+      const lastActive = activeDays[activeDays.length - 1];
+      const rangeLabel = `${firstActive.date.getMonth() + 1}/${firstActive.dayNumber} ~ ${lastActive.date.getMonth() + 1}/${lastActive.dayNumber}`;
+
+      const isCurrent = weekDays.some((d) => d.dateString === todayString);
+
+      weeks.push({
+        weekIndex: i,
+        weekNumber: weekCounter++,
+        dateStrings: weekDays.map((d) => d.dateString),
+        days: weekDays,
+        rangeLabel,
+        isCurrentWeek: isCurrent,
+      });
+    }
+
+    return weeks;
+  }, [monthMatrix, todayString]);
+
+  // Overall Monthly Completion stats calculation based on successful weeks
+  const { totalMonthTargetWeeks, totalMonthSuccessfulWeeks, overallMonthPercent } = useMemo(() => {
+    let targetWeeksSum = 0;
+    let successfulWeeksSum = 0;
+
+    checklists.forEach((item) => {
+      if (item.targetType === 'weekly') return;
+      const targetWeeks = item.targetWeeksPerMonth || (
+        item.targetPerMonth
+          ? Math.max(1, Math.min(monthWeeks.length, Math.round(item.targetPerMonth / (item.targetPerWeek || 3))))
+          : Math.min(4, monthWeeks.length)
+      );
+
+      const successfulCount = monthWeeks.filter((w) => {
+        const count = item.completedDates.filter((d) => w.dateStrings.includes(d)).length;
+        return count >= (item.targetPerWeek || 3);
+      }).length;
+
+      targetWeeksSum += targetWeeks;
+      successfulWeeksSum += successfulCount;
+    });
+
+    const percent = targetWeeksSum > 0 ? Math.min(100, Math.round((successfulWeeksSum / targetWeeksSum) * 100)) : 0;
+    return {
+      totalMonthTargetWeeks: targetWeeksSum,
+      totalMonthSuccessfulWeeks: successfulWeeksSum,
+      overallMonthPercent: percent,
+    };
+  }, [checklists, monthWeeks]);
 
   // Toggle date completion for an item
   const handleToggleDate = async (itemId: string, dateStr: string) => {
@@ -197,11 +316,17 @@ export default function CalendarChecklistView({
     setIsCreating(true);
     setCreateModalError(null);
 
+    const safeTargetW = Math.max(1, Math.min(7, Number(newTargetPerWeek) || 3));
+    const safeTargetWeeks = Math.max(1, Math.min(5, Number(newTargetWeeksPerMonth) || 4));
+
     try {
       await addDoc(collection(db, 'groups', group.id, 'checklists'), {
         groupId: group.id,
         title: trimmedTitle,
-        targetPerWeek: Math.max(1, Math.min(7, Number(newTargetPerWeek) || 3)),
+        targetType: newTargetType,
+        targetPerWeek: safeTargetW,
+        targetWeeksPerMonth: safeTargetWeeks,
+        targetPerMonth: safeTargetWeeks * safeTargetW,
         category: newCategory.trim(),
         color: newColor || 'emerald',
         creatorUsername: username,
@@ -211,7 +336,9 @@ export default function CalendarChecklistView({
       });
 
       setNewTitle('');
+      setNewTargetType('both');
       setNewTargetPerWeek(3);
+      setNewTargetWeeksPerMonth(4);
       setNewCategory('');
       setNewColor('emerald');
       setIsCreateModalOpen(false);
@@ -234,11 +361,17 @@ export default function CalendarChecklistView({
     }
 
     setIsUpdating(true);
+    const safeTargetW = Math.max(1, Math.min(7, Number(editTargetPerWeek) || 3));
+    const safeTargetWeeks = Math.max(1, Math.min(5, Number(editTargetWeeksPerMonth) || 4));
+
     try {
       const ref = doc(db, 'groups', group.id, 'checklists', editingItem.id);
       await updateDoc(ref, {
         title: trimmed,
-        targetPerWeek: Math.max(1, Math.min(7, Number(editTargetPerWeek) || 3)),
+        targetType: editTargetType,
+        targetPerWeek: safeTargetW,
+        targetWeeksPerMonth: safeTargetWeeks,
+        targetPerMonth: safeTargetWeeks * safeTargetW,
         category: editCategory.trim(),
         color: editColor,
       });
@@ -268,64 +401,64 @@ export default function CalendarChecklistView({
 
   return (
     <div className="space-y-4 sm:space-y-5 animate-in fade-in duration-150">
-      {/* 1. Weekly Overview & Progress Banner ("이번주에 몇회 중 몇회 했는지 %도 표시") */}
+      {/* 1. View Mode & Period Overview Banner */}
       <div className="bg-gradient-to-r from-emerald-500/10 via-teal-500/10 to-blue-500/10 border border-emerald-200/90 rounded-2xl p-4 sm:p-5 shadow-xs">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 pb-3 sm:pb-4 border-b border-emerald-200/60">
+        {/* Top bar: Title + View Mode Selector + Action Button */}
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 pb-3 sm:pb-4 border-b border-emerald-200/60">
           <div>
             <div className="flex items-center gap-2 flex-wrap">
               <span className="w-7 h-7 rounded-xl bg-emerald-600 text-white flex items-center justify-center shadow-xs">
                 <CheckSquare className="w-4 h-4" />
               </span>
               <h3 className="text-base sm:text-lg font-bold text-slate-900">
-                달력 체크리스트
+                달력 체크리스트 & 목표 관리
               </h3>
               <span className="px-2 py-0.5 rounded-full text-[10px] sm:text-xs font-bold bg-emerald-100 text-emerald-800">
-                {weekInfo.label} ({weekInfo.rangeText})
+                주간/월간 목표
               </span>
-              {isCurrentWeek && (
-                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-100 text-blue-800">
-                  이번 주
-                </span>
-              )}
             </div>
             <p className="text-xs text-slate-600 mt-1">
-              일정과 별도로 요일별 실천 여부를 체크하고, 이번 주 목표 달성률을 확인합니다.
+              일정과 깔끔하게 분리되어, 이번 주 요일별 실천 및 이번 달 누적 목표 달성률(%)을 한눈에 추적합니다.
             </p>
           </div>
 
-          {/* Week Navigator & Add Button */}
-          <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap justify-between sm:justify-end">
-            <div className="flex items-center bg-white rounded-xl p-0.5 border border-emerald-200/80 shadow-2xs">
+          <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap justify-between lg:justify-end">
+            {/* View Mode Filter Tabs */}
+            <div className="flex items-center bg-white rounded-xl p-1 border border-emerald-200 shadow-2xs">
               <button
                 type="button"
-                onClick={prevWeek}
-                className="p-1.5 hover:bg-emerald-50 text-slate-600 hover:text-emerald-700 active:scale-95 rounded-lg transition-all cursor-pointer"
-                title="이전 주"
+                onClick={() => setActiveViewMode('both')}
+                className={`px-2.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                  activeViewMode === 'both'
+                    ? 'bg-emerald-600 text-white shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
               >
-                <ChevronLeft className="w-4 h-4" />
+                주간+월간
               </button>
-              <span className="px-2.5 text-xs font-bold text-slate-800 whitespace-nowrap">
-                {weekInfo.label}
-              </span>
               <button
                 type="button"
-                onClick={nextWeek}
-                className="p-1.5 hover:bg-emerald-50 text-slate-600 hover:text-emerald-700 active:scale-95 rounded-lg transition-all cursor-pointer"
-                title="다음 주"
+                onClick={() => setActiveViewMode('weekly')}
+                className={`px-2.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                  activeViewMode === 'weekly'
+                    ? 'bg-emerald-600 text-white shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
               >
-                <ChevronRight className="w-4 h-4" />
+                주간 실천
+              </button>
+              <button
+                type="button"
+                onClick={() => setActiveViewMode('monthly')}
+                className={`px-2.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                  activeViewMode === 'monthly'
+                    ? 'bg-emerald-600 text-white shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                월간 목표
               </button>
             </div>
-
-            {!isCurrentWeek && (
-              <button
-                type="button"
-                onClick={goCurrentWeek}
-                className="px-2.5 py-1.5 text-xs font-semibold text-emerald-700 bg-white hover:bg-emerald-50 border border-emerald-200 rounded-xl transition-colors cursor-pointer whitespace-nowrap active:scale-95"
-              >
-                이번 주로
-              </button>
-            )}
 
             <button
               type="button"
@@ -334,53 +467,146 @@ export default function CalendarChecklistView({
                 setCreateModalError(null);
                 setIsCreateModalOpen(true);
               }}
-              className="py-2 px-3.5 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white font-semibold rounded-xl text-xs transition-all shadow-xs shadow-emerald-500/25 flex items-center gap-1.5 cursor-pointer whitespace-nowrap"
+              className="py-2 px-3.5 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white font-semibold rounded-xl text-xs transition-all shadow-xs shadow-emerald-500/25 flex items-center gap-1.5 cursor-pointer whitespace-nowrap flex-shrink-0"
             >
               <Plus className="w-4 h-4" />
-              <span>체크리스트 추가</span>
+              <span>새 체크리스트 등록</span>
             </button>
           </div>
         </div>
 
-        {/* Weekly Completion Progress Card (이번 주 몇회 중 몇회 했는지 % 표시) */}
-        <div className="pt-3 sm:pt-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-          <div>
-            <span className="text-[11px] font-bold text-emerald-800 uppercase tracking-wider">
-              이번 주 전체 달성률
-            </span>
-            <div className="text-sm sm:text-base font-bold text-slate-900 mt-0.5">
-              {checklists.length === 0 ? (
-                '등록된 체크리스트가 없습니다.'
-              ) : (
-                <>
-                  총 <span className="text-emerald-700 font-black">{totalWeekTarget}회</span> 중{' '}
-                  <span className="text-emerald-600 font-black">{totalWeekCompleted}회</span> 달성 ({overallPercent}%)
-                </>
-              )}
-            </div>
-          </div>
+        {/* Dual Period Navigation & Progress Cards (Weekly & Monthly Targets) */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-3.5">
+          {/* Week Overview Card */}
+          {(activeViewMode === 'both' || activeViewMode === 'weekly') && (
+            <div className="bg-white/90 backdrop-blur-xs rounded-xl p-3.5 border border-emerald-200/80 shadow-2xs space-y-2">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-1.5">
+                  <CalendarDays className="w-4 h-4 text-emerald-600" />
+                  <span className="text-xs font-bold text-slate-900">주간 실천율</span>
+                  <span className="text-[10px] text-slate-500">({weekInfo.label})</span>
+                </div>
 
-          <div className="flex items-center gap-3">
-            <div className="bg-white/95 px-3 py-1.5 rounded-xl border border-emerald-200/80 shadow-2xs flex items-baseline gap-1.5">
-              <span className="text-xl sm:text-2xl font-black text-emerald-600 font-mono">
-                {totalWeekCompleted} / {totalWeekTarget}회
-              </span>
-              <span className="text-xs sm:text-sm font-bold text-emerald-700 font-mono">
-                ({overallPercent}%)
-              </span>
+                {/* Week Navigator */}
+                <div className="flex items-center gap-1">
+                  <button
+                    type="button"
+                    onClick={prevWeek}
+                    className="p-1 text-slate-500 hover:text-emerald-700 hover:bg-emerald-50 rounded-md cursor-pointer"
+                    title="이전 주"
+                  >
+                    <ChevronLeft className="w-3.5 h-3.5" />
+                  </button>
+                  <span className="text-[11px] font-bold text-slate-700 px-1 font-mono">
+                    {weekInfo.rangeText}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={nextWeek}
+                    className="p-1 text-slate-500 hover:text-emerald-700 hover:bg-emerald-50 rounded-md cursor-pointer"
+                    title="다음 주"
+                  >
+                    <ChevronRight className="w-3.5 h-3.5" />
+                  </button>
+                  {!isCurrentWeek && (
+                    <button
+                      type="button"
+                      onClick={goCurrentWeek}
+                      className="text-[10px] font-semibold text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded-md hover:bg-emerald-100 cursor-pointer"
+                    >
+                      오늘
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              <div className="flex items-baseline justify-between">
+                <span className="text-xs text-slate-600">
+                  이번 주 목표: <strong className="text-emerald-800">{totalWeekTarget}회</strong> 중{' '}
+                  <strong className="text-emerald-700">{totalWeekCompleted}회</strong> 달성
+                </span>
+                <span className="text-lg font-black text-emerald-700 font-mono">
+                  {overallWeekPercent}%
+                </span>
+              </div>
+
+              {/* Progress Bar */}
+              <div className="w-full bg-emerald-100/70 rounded-full h-2 overflow-hidden">
+                <div 
+                  className="bg-emerald-600 h-full rounded-full transition-all duration-500"
+                  style={{ width: `${overallWeekPercent}%` }}
+                />
+              </div>
             </div>
-          </div>
+          )}
+
+          {/* Month Overview Card (월간 목표 달성율 & 이번 달 진행) */}
+          {(activeViewMode === 'both' || activeViewMode === 'monthly') && (
+            <div className={`bg-white/90 backdrop-blur-xs rounded-xl p-3.5 border border-teal-200/80 shadow-2xs space-y-2 ${
+              activeViewMode === 'monthly' ? 'md:col-span-2' : ''
+            }`}>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-1.5">
+                  <Target className="w-4 h-4 text-teal-600" />
+                  <span className="text-xs font-bold text-slate-900">월간 목표 달성율</span>
+                  <span className="text-[10px] text-teal-700 font-semibold px-1.5 py-0.2 bg-teal-50 rounded-md border border-teal-100">
+                    {monthInfo.fullLabel}
+                  </span>
+                </div>
+
+                {/* Month Navigator */}
+                <div className="flex items-center gap-1">
+                  <button
+                    type="button"
+                    onClick={prevMonth}
+                    className="p-1 text-slate-500 hover:text-teal-700 hover:bg-teal-50 rounded-md cursor-pointer"
+                    title="이전 달"
+                  >
+                    <ChevronLeft className="w-3.5 h-3.5" />
+                  </button>
+                  <span className="text-[11px] font-bold text-slate-700 px-1 font-mono">
+                    {activeYear}년 {activeMonth + 1}월
+                  </span>
+                  <button
+                    type="button"
+                    onClick={nextMonth}
+                    className="p-1 text-slate-500 hover:text-teal-700 hover:bg-teal-50 rounded-md cursor-pointer"
+                    title="다음 달"
+                  >
+                    <ChevronRight className="w-3.5 h-3.5" />
+                  </button>
+                  {!isCurrentMonth && (
+                    <button
+                      type="button"
+                      onClick={goCurrentMonth}
+                      className="text-[10px] font-semibold text-teal-700 bg-teal-50 px-1.5 py-0.5 rounded-md hover:bg-teal-100 cursor-pointer"
+                    >
+                      이번 달
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              <div className="flex items-baseline justify-between">
+                <span className="text-xs text-slate-600">
+                  {activeMonth + 1}월 총 성공 주 목표: <strong className="text-teal-800">{totalMonthTargetWeeks}주</strong> 중{' '}
+                  <strong className="text-teal-700">{totalMonthSuccessfulWeeks}주</strong> 성공 달성
+                </span>
+                <span className="text-lg font-black text-teal-700 font-mono">
+                  {overallMonthPercent}%
+                </span>
+              </div>
+
+              {/* Progress Bar */}
+              <div className="w-full bg-teal-100/70 rounded-full h-2 overflow-hidden">
+                <div 
+                  className="bg-teal-600 h-full rounded-full transition-all duration-500"
+                  style={{ width: `${overallMonthPercent}%` }}
+                />
+              </div>
+            </div>
+          )}
         </div>
-
-        {/* Big Progress Bar */}
-        {totalWeekTarget > 0 && (
-          <div className="mt-3 w-full bg-emerald-100/80 rounded-full h-2.5 overflow-hidden">
-            <div
-              className="bg-gradient-to-r from-emerald-500 to-teal-500 h-full rounded-full transition-all duration-500"
-              style={{ width: `${overallPercent}%` }}
-            />
-          </div>
-        )}
       </div>
 
       {error && (
@@ -403,35 +629,63 @@ export default function CalendarChecklistView({
           </div>
           <h4 className="font-bold text-slate-800 text-base">등록된 달력 체크리스트가 없습니다</h4>
           <p className="text-xs text-slate-500 mt-1 mb-4">
-            매주 실천하고 싶은 목표나 할 일 목록을 만들고 요일별로 체크해보세요.
+            주간 및 월간 단위로 달성하고 싶은 목표를 등록하고 요일별/날짜별로 체크해보세요.
           </p>
           <button
             type="button"
             onClick={() => setIsCreateModalOpen(true)}
-            className="inline-flex items-center gap-1.5 py-2 px-4 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold rounded-xl text-xs sm:text-sm transition-colors shadow-xs active:scale-95"
+            className="inline-flex items-center gap-1.5 py-2 px-4 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold rounded-xl text-xs sm:text-sm transition-colors shadow-xs active:scale-95 cursor-pointer"
           >
             <Plus className="w-4 h-4" />
             <span>첫 체크리스트 만들기</span>
           </button>
         </div>
       ) : (
-        <div className="space-y-3">
+        <div className="space-y-3 sm:space-y-4">
           {checklists.map((item) => {
+            // Weekly calculations
             const thisWeekDates = item.completedDates.filter((d) => weekDateStrings.includes(d));
             const thisWeekCount = thisWeekDates.length;
-            const targetCount = item.targetPerWeek || 1;
-            const itemPercent = Math.min(100, Math.round((thisWeekCount / targetCount) * 100));
-            const isTargetReached = thisWeekCount >= targetCount;
+            const targetWeekCount = item.targetPerWeek || 1;
+            const itemWeekPercent = Math.min(100, Math.round((thisWeekCount / targetWeekCount) * 100));
+            const isWeekTargetReached = thisWeekCount >= targetWeekCount;
+
+            // Monthly calculations for active month (based on successful weeks)
+            const targetWeeks = item.targetWeeksPerMonth || (
+              item.targetPerMonth
+                ? Math.max(1, Math.min(monthWeeks.length, Math.round(item.targetPerMonth / (targetWeekCount || 3))))
+                : Math.min(4, monthWeeks.length)
+            );
+
+            const itemWeekResults = monthWeeks.map((w) => {
+              const count = item.completedDates.filter((d) => w.dateStrings.includes(d)).length;
+              const target = targetWeekCount;
+              const isSuccess = count >= target;
+              return {
+                ...w,
+                count,
+                target,
+                isSuccess,
+              };
+            });
+
+            const successfulWeeksCount = itemWeekResults.filter((w) => w.isSuccess).length;
+            const isMonthTargetReached = successfulWeeksCount >= targetWeeks;
+            const itemMonthPercent = targetWeeks > 0 ? Math.min(100, Math.round((successfulWeeksCount / targetWeeks) * 100)) : 0;
+
             const style = CATEGORY_COLORS[item.color || 'emerald'] || CATEGORY_COLORS.emerald;
+            const isExpandedMonth = expandedMonthItemId === item.id;
 
             return (
               <div
                 key={item.id}
                 className={`bg-white rounded-2xl border p-4 sm:p-5 transition-all shadow-xs ${
-                  isTargetReached ? 'border-emerald-300 ring-1 ring-emerald-200' : 'border-slate-200 hover:border-slate-300'
+                  isMonthTargetReached || isWeekTargetReached 
+                    ? 'border-emerald-300 ring-1 ring-emerald-100' 
+                    : 'border-slate-200 hover:border-slate-300'
                 }`}
               >
-                {/* Header of item: Title, Category, Individual Week Progress */}
+                {/* Header: Title, Category, Week/Month Target Badges & Actions */}
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 pb-3 border-b border-slate-100">
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
@@ -446,28 +700,55 @@ export default function CalendarChecklistView({
                         </span>
                       )}
 
-                      {/* Item Weekly Progress Tag ("이번주에 몇회 중 몇회 했는지 %도 표시") */}
-                      <span
-                        className={`px-2 py-0.5 rounded-full text-xs font-bold font-mono ${
-                          isTargetReached
-                            ? 'bg-emerald-100 text-emerald-800'
-                            : 'bg-slate-100 text-slate-700'
-                        }`}
-                      >
-                        이번주 {targetCount}회 중 {thisWeekCount}회 ({itemPercent}%)
-                      </span>
+                      {/* Weekly Tag */}
+                      {item.targetType !== 'monthly' && (
+                        <span
+                          className={`px-2 py-0.5 rounded-full text-xs font-bold font-mono ${
+                            isWeekTargetReached
+                              ? 'bg-emerald-100 text-emerald-800'
+                              : 'bg-slate-100 text-slate-700'
+                          }`}
+                        >
+                          이번주 {targetWeekCount}회 중 {thisWeekCount}회 ({itemWeekPercent}%)
+                        </span>
+                      )}
 
-                      {isTargetReached && (
+                      {/* Monthly Tag (Weeks-based) */}
+                      {item.targetType !== 'weekly' && (
+                        <span
+                          className={`px-2 py-0.5 rounded-full text-xs font-bold font-mono ${
+                            isMonthTargetReached
+                              ? 'bg-teal-100 text-teal-800'
+                              : 'bg-slate-100 text-slate-700'
+                          }`}
+                        >
+                          {activeMonth + 1}월 목표 {targetWeeks}주 중 {successfulWeeksCount}주 성공 ({itemMonthPercent}%)
+                        </span>
+                      )}
+
+                      {/* Celebratory Badge */}
+                      {isMonthTargetReached && (
                         <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-900">
                           <Award className="w-3 h-3 text-amber-600" />
-                          <span>목표 달성!</span>
+                          <span>월간 목표 달성! ({successfulWeeksCount}주 성공) 🎉</span>
+                        </span>
+                      )}
+                      {!isMonthTargetReached && isWeekTargetReached && item.targetType !== 'monthly' && (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-900">
+                          <Sparkles className="w-3 h-3 text-emerald-600" />
+                          <span>주간 달성!</span>
                         </span>
                       )}
                     </div>
 
-                    <div className="flex items-center gap-2 mt-1">
-                      <span className="text-[11px] text-slate-500">
-                        목표: 주 {targetCount}회
+                    <div className="flex items-center gap-2 mt-1 flex-wrap">
+                      <span className="text-[11px] text-slate-500 font-medium">
+                        목표:{' '}
+                        {item.targetType === 'monthly'
+                          ? `월 ${targetWeeks}주 성공 (주 ${targetWeekCount}회 실천)`
+                          : item.targetType === 'weekly'
+                          ? `주 ${targetWeekCount}회`
+                          : `주 ${targetWeekCount}회 · 월 ${targetWeeks}주 성공`}
                       </span>
                       <span className="text-slate-300">·</span>
                       <span className="text-[11px] text-slate-400">
@@ -476,14 +757,30 @@ export default function CalendarChecklistView({
                     </div>
                   </div>
 
-                  {/* Actions (Edit / Delete) */}
+                  {/* Actions (Mini month calendar toggle / Edit / Delete) */}
                   <div className="flex items-center gap-1 self-end sm:self-auto flex-shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => setExpandedMonthItemId(isExpandedMonth ? null : item.id)}
+                      className={`px-2.5 py-1 text-xs font-semibold rounded-lg flex items-center gap-1 transition-all cursor-pointer ${
+                        isExpandedMonth
+                          ? 'bg-teal-600 text-white shadow-2xs'
+                          : 'bg-teal-50 text-teal-700 hover:bg-teal-100'
+                      }`}
+                      title="월간 달력 날짜별 달성 현황"
+                    >
+                      <CalendarIcon className="w-3.5 h-3.5" />
+                      <span>{activeMonth + 1}월 달력</span>
+                    </button>
+
                     <button
                       type="button"
                       onClick={() => {
                         setEditingItem(item);
                         setEditTitle(item.title);
-                        setEditTargetPerWeek(item.targetPerWeek);
+                        setEditTargetType(item.targetType || 'both');
+                        setEditTargetPerWeek(item.targetPerWeek || 3);
+                        setEditTargetWeeksPerMonth(item.targetWeeksPerMonth || targetWeeks);
                         setEditCategory(item.category || '');
                         setEditColor(item.color || 'emerald');
                       }}
@@ -492,6 +789,7 @@ export default function CalendarChecklistView({
                     >
                       <Edit3 className="w-4 h-4" />
                     </button>
+
                     <button
                       type="button"
                       onClick={() => handleDeleteChecklist(item)}
@@ -503,13 +801,89 @@ export default function CalendarChecklistView({
                   </div>
                 </div>
 
+                {/* Monthly Progress Bar Line & Week Status Cards */}
+                {item.targetType !== 'weekly' && (
+                  <div className="mt-3 pt-2.5 border-t border-slate-100">
+                    <div className="flex items-center justify-between text-[11px] font-semibold text-slate-600 mb-1.5">
+                      <span className="flex items-center gap-1.5">
+                        <Target className="w-3.5 h-3.5 text-teal-600" />
+                        <span>{activeMonth + 1}월 주차별 성공 현황:</span>
+                        <strong className="text-teal-700">{successfulWeeksCount}</strong> / {targetWeeks}주 성공
+                        <span className="text-slate-400 font-normal hidden sm:inline">(주 {targetWeekCount}회 실천 시 주간 성공)</span>
+                      </span>
+                      <span className="font-mono font-bold text-teal-700">
+                        {itemMonthPercent}%
+                      </span>
+                    </div>
+                    <div className="w-full bg-slate-100 rounded-full h-2 overflow-hidden mb-2.5">
+                      <div 
+                        className="bg-teal-500 h-full rounded-full transition-all duration-300"
+                        style={{ width: `${itemMonthPercent}%` }}
+                      />
+                    </div>
+
+                    {/* Week-by-Week Success Cards for the Month */}
+                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-1.5 sm:gap-2">
+                      {itemWeekResults.map((w) => (
+                        <div
+                          key={w.weekIndex}
+                          className={`p-2 sm:p-2.5 rounded-xl border text-xs transition-all ${
+                            w.isSuccess
+                              ? 'bg-emerald-50/90 border-emerald-300 text-emerald-950 shadow-2xs'
+                              : w.isCurrentWeek
+                              ? 'bg-blue-50/80 border-blue-200 text-blue-950'
+                              : 'bg-slate-50 border-slate-200 text-slate-600'
+                          }`}
+                        >
+                          <div className="flex items-center justify-between gap-1 mb-1">
+                            <span className="text-[11px] font-bold flex items-center gap-1">
+                              {w.isSuccess ? (
+                                <Award className="w-3.5 h-3.5 text-emerald-600 flex-shrink-0" />
+                              ) : (
+                                <CalendarIcon className="w-3 h-3 text-slate-400 flex-shrink-0" />
+                              )}
+                              <span>{w.weekNumber}주차</span>
+                            </span>
+                            <span
+                              className={`text-[10px] font-bold px-1.5 py-0.2 rounded-md ${
+                                w.isSuccess
+                                  ? 'bg-emerald-200 text-emerald-900'
+                                  : w.isCurrentWeek
+                                  ? 'bg-blue-100 text-blue-800'
+                                  : 'bg-slate-200/80 text-slate-600'
+                              }`}
+                            >
+                              {w.isSuccess ? '성공! 🏆' : w.isCurrentWeek ? '진행 중' : `${w.count}/${w.target}회`}
+                            </span>
+                          </div>
+
+                          <div className="text-[10px] text-slate-500 font-mono mb-1.5">
+                            {w.rangeLabel}
+                          </div>
+
+                          <div className="w-full bg-slate-200/70 rounded-full h-1.5 overflow-hidden">
+                            <div
+                              className={`h-full rounded-full transition-all ${
+                                w.isSuccess ? 'bg-emerald-500' : w.isCurrentWeek ? 'bg-blue-500' : 'bg-slate-400'
+                              }`}
+                              style={{ width: `${Math.min(100, Math.round((w.count / w.target) * 100))}%` }}
+                            />
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
                 {/* 7-Day Day-of-Week Buttons for the active week */}
                 <div className="pt-3">
                   <div className="flex items-center justify-between text-[11px] font-semibold text-slate-500 mb-1.5">
-                    <span>이번 주 요일별 체크 (클릭하여 완료 토글):</span>
-                    <span className="font-mono text-emerald-700 font-bold">
-                      달성률: {itemPercent}%
-                    </span>
+                    <span>이번 주 요일별 실천 체크:</span>
+                    {item.targetType !== 'monthly' && (
+                      <span className="font-mono text-emerald-700 font-bold">
+                        주간 달성률: {itemWeekPercent}%
+                      </span>
+                    )}
                   </div>
 
                   <div className="grid grid-cols-7 gap-1 sm:gap-2">
@@ -577,6 +951,61 @@ export default function CalendarChecklistView({
                     })}
                   </div>
                 </div>
+
+                {/* Expanded Month Mini-Calendar Heatmap / Date Toggle */}
+                {isExpandedMonth && (
+                  <div className="mt-3.5 pt-3 border-t border-slate-100 bg-slate-50/80 rounded-xl p-3 animate-in fade-in duration-150">
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="flex items-center gap-1.5 text-xs font-bold text-slate-800">
+                        <CalendarIcon className="w-3.5 h-3.5 text-teal-600" />
+                        <span>{activeYear}년 {activeMonth + 1}월 전체 달력 실천 현황</span>
+                      </div>
+                      <span className="text-[11px] text-teal-700 font-semibold">
+                        날짜를 클릭하면 완료 여부가 토글됩니다
+                      </span>
+                    </div>
+
+                    {/* Month Matrix Grid */}
+                    <div className="grid grid-cols-7 gap-1 text-center">
+                      {['일', '월', '화', '수', '목', '금', '토'].map((h, i) => (
+                        <div 
+                          key={h} 
+                          className={`text-[10px] font-bold py-1 ${
+                            i === 0 ? 'text-rose-500' : i === 6 ? 'text-blue-500' : 'text-slate-400'
+                          }`}
+                        >
+                          {h}
+                        </div>
+                      ))}
+
+                      {monthMatrix.map((cell, idx) => {
+                        const isCurrentMonthDay = cell.date.getMonth() === activeMonth;
+                        const isDone = item.completedDates.includes(cell.dateString);
+                        const isToday = cell.dateString === todayString;
+
+                        return (
+                          <button
+                            key={idx}
+                            type="button"
+                            onClick={() => handleToggleDate(item.id, cell.dateString)}
+                            className={`py-1.5 px-1 rounded-lg text-xs font-semibold flex flex-col items-center justify-center transition-all cursor-pointer ${
+                              !isCurrentMonthDay
+                                ? 'opacity-30 text-slate-400'
+                                : isDone
+                                ? 'bg-teal-500 text-white font-bold shadow-2xs'
+                                : isToday
+                                ? 'bg-blue-50 text-blue-700 border border-blue-200'
+                                : 'bg-white hover:bg-teal-50 text-slate-700 border border-slate-200/60'
+                            }`}
+                          >
+                            <span>{cell.date.getDate()}</span>
+                            {isDone && <Check className="w-2.5 h-2.5 mt-0.5 stroke-[3]" />}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
               </div>
             );
           })}
@@ -594,7 +1023,7 @@ export default function CalendarChecklistView({
                 </div>
                 <div>
                   <h3 className="font-bold text-slate-900 text-base">새 달력 체크리스트 등록</h3>
-                  <p className="text-[11px] text-slate-500">주간 목표 횟수를 정하고 요일별로 실천하세요.</p>
+                  <p className="text-[11px] text-slate-500">주간 및 월간 목표 횟수를 정하고 실천하세요.</p>
                 </div>
               </div>
               <button
@@ -624,36 +1053,110 @@ export default function CalendarChecklistView({
                   required
                   value={newTitle}
                   onChange={(e) => setNewTitle(e.target.value)}
-                  placeholder="예: 주간 스터디 참여, 30분 운동, 블로그 포스팅"
+                  placeholder="예: 30분 유산소 운동, 알고리즘 풀기, 독서"
                   className="w-full px-3.5 py-2.5 text-base sm:text-sm border border-slate-200 rounded-xl focus:outline-hidden focus:ring-2 focus:ring-emerald-500"
                 />
               </div>
 
-              {/* Weekly Target Count */}
+              {/* Target Type Selector */}
               <div>
                 <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  주간 목표 횟수 <span className="text-red-500">*</span>
+                  목표 관리 유형
                 </label>
-                <div className="flex items-center gap-2">
-                  {[1, 2, 3, 4, 5, 6, 7].map((num) => (
-                    <button
-                      key={num}
-                      type="button"
-                      onClick={() => setNewTargetPerWeek(num)}
-                      className={`flex-1 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                        newTargetPerWeek === num
-                          ? 'bg-emerald-600 text-white shadow-xs'
-                          : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
-                      }`}
-                    >
-                      {num === 7 ? '매일' : `주 ${num}회`}
-                    </button>
-                  ))}
+                <div className="grid grid-cols-3 gap-1.5 p-1 bg-slate-100 rounded-xl">
+                  <button
+                    type="button"
+                    onClick={() => setNewTargetType('both')}
+                    className={`py-1.5 text-xs font-bold rounded-lg transition-all cursor-pointer ${
+                      newTargetType === 'both' ? 'bg-white text-emerald-700 shadow-xs' : 'text-slate-600'
+                    }`}
+                  >
+                    주간 + 월간 모두
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setNewTargetType('weekly')}
+                    className={`py-1.5 text-xs font-bold rounded-lg transition-all cursor-pointer ${
+                      newTargetType === 'weekly' ? 'bg-white text-emerald-700 shadow-xs' : 'text-slate-600'
+                    }`}
+                  >
+                    주간 목표만
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setNewTargetType('monthly')}
+                    className={`py-1.5 text-xs font-bold rounded-lg transition-all cursor-pointer ${
+                      newTargetType === 'monthly' ? 'bg-white text-teal-700 shadow-xs' : 'text-slate-600'
+                    }`}
+                  >
+                    월간 목표만
+                  </button>
                 </div>
-                <p className="text-[11px] text-slate-500 mt-1">
-                  일주일 동안 몇 번 실천할지 목표를 지정합니다. (예: 주 3회 완료 시 100% 달성)
-                </p>
               </div>
+
+              {/* Weekly Target Count */}
+              {newTargetType !== 'monthly' && (
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    주간 목표 횟수
+                  </label>
+                  <div className="flex items-center gap-1.5">
+                    {[1, 2, 3, 4, 5, 6, 7].map((num) => (
+                      <button
+                        key={num}
+                        type="button"
+                        onClick={() => setNewTargetPerWeek(num)}
+                        className={`flex-1 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                          newTargetPerWeek === num
+                            ? 'bg-emerald-600 text-white shadow-xs'
+                            : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
+                        }`}
+                      >
+                        {num === 7 ? '매일' : `${num}회`}
+                      </button>
+                    ))}
+                  </div>
+                  <p className="text-[11px] text-slate-500 mt-1">
+                    한 주 동안 실천할 횟수입니다. (예: 주 3회)
+                  </p>
+                </div>
+              )}
+
+              {/* Monthly Target Weeks */}
+              {newTargetType !== 'weekly' && (
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="text-xs font-semibold text-slate-700">
+                      월간 목표 (성공한 주 단위)
+                    </label>
+                    <span className="text-[11px] text-teal-700 font-bold">
+                      월 {newTargetWeeksPerMonth}주 성공 목표
+                    </span>
+                  </div>
+
+                  {/* Preset Buttons */}
+                  <div className="grid grid-cols-5 gap-1.5 mb-1.5">
+                    {[1, 2, 3, 4, 5].map((w) => (
+                      <button
+                        key={w}
+                        type="button"
+                        onClick={() => setNewTargetWeeksPerMonth(w)}
+                        className={`py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                          newTargetWeeksPerMonth === w
+                            ? 'bg-teal-600 text-white shadow-xs'
+                            : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
+                        }`}
+                      >
+                        {w}주 성공
+                      </button>
+                    ))}
+                  </div>
+
+                  <p className="text-[11px] text-slate-500 mt-1 leading-relaxed">
+                    한 달 중 주간 목표(주 {newTargetPerWeek}회 실천)를 달성한 주의 개수를 월간 목표로 측정합니다. (예: 월 4주 성공)
+                  </p>
+                </div>
+              )}
 
               {/* Category & Color */}
               <div>
@@ -665,7 +1168,7 @@ export default function CalendarChecklistView({
                     type="text"
                     value={newCategory}
                     onChange={(e) => setNewCategory(e.target.value)}
-                    placeholder="카테고리명 (예: 운동, 공부, 업무)"
+                    placeholder="카테고리명 (예: 운동, 독서, 업무)"
                     className="flex-1 px-3 py-2 text-base sm:text-sm border border-slate-200 rounded-xl focus:outline-hidden focus:ring-2 focus:ring-emerald-500"
                   />
                   <div className="flex items-center gap-1">
@@ -717,7 +1220,7 @@ export default function CalendarChecklistView({
                 </div>
                 <div>
                   <h3 className="font-bold text-slate-900 text-base">체크리스트 수정</h3>
-                  <p className="text-[11px] text-slate-500">목표 횟수와 이름을 수정할 수 있습니다.</p>
+                  <p className="text-[11px] text-slate-500">주간 및 월간 목표 횟수와 이름을 수정할 수 있습니다.</p>
                 </div>
               </div>
               <button
@@ -744,28 +1247,101 @@ export default function CalendarChecklistView({
                 />
               </div>
 
-              {/* Weekly Target Count */}
+              {/* Target Type */}
               <div>
                 <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  주간 목표 횟수 <span className="text-red-500">*</span>
+                  목표 관리 유형
                 </label>
-                <div className="flex items-center gap-2">
-                  {[1, 2, 3, 4, 5, 6, 7].map((num) => (
-                    <button
-                      key={num}
-                      type="button"
-                      onClick={() => setEditTargetPerWeek(num)}
-                      className={`flex-1 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                        editTargetPerWeek === num
-                          ? 'bg-blue-600 text-white shadow-xs'
-                          : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
-                      }`}
-                    >
-                      {num === 7 ? '매일' : `주 ${num}회`}
-                    </button>
-                  ))}
+                <div className="grid grid-cols-3 gap-1.5 p-1 bg-slate-100 rounded-xl">
+                  <button
+                    type="button"
+                    onClick={() => setEditTargetType('both')}
+                    className={`py-1.5 text-xs font-bold rounded-lg transition-all cursor-pointer ${
+                      editTargetType === 'both' ? 'bg-white text-blue-700 shadow-xs' : 'text-slate-600'
+                    }`}
+                  >
+                    주간 + 월간 모두
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setEditTargetType('weekly')}
+                    className={`py-1.5 text-xs font-bold rounded-lg transition-all cursor-pointer ${
+                      editTargetType === 'weekly' ? 'bg-white text-blue-700 shadow-xs' : 'text-slate-600'
+                    }`}
+                  >
+                    주간 목표만
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setEditTargetType('monthly')}
+                    className={`py-1.5 text-xs font-bold rounded-lg transition-all cursor-pointer ${
+                      editTargetType === 'monthly' ? 'bg-white text-blue-700 shadow-xs' : 'text-slate-600'
+                    }`}
+                  >
+                    월간 목표만
+                  </button>
                 </div>
               </div>
+
+              {/* Weekly Target Count */}
+              {editTargetType !== 'monthly' && (
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    주간 목표 횟수
+                  </label>
+                  <div className="flex items-center gap-1.5">
+                    {[1, 2, 3, 4, 5, 6, 7].map((num) => (
+                      <button
+                        key={num}
+                        type="button"
+                        onClick={() => setEditTargetPerWeek(num)}
+                        className={`flex-1 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                          editTargetPerWeek === num
+                            ? 'bg-blue-600 text-white shadow-xs'
+                            : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
+                        }`}
+                      >
+                        {num === 7 ? '매일' : `${num}회`}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Monthly Target Weeks */}
+              {editTargetType !== 'weekly' && (
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="text-xs font-semibold text-slate-700">
+                      월간 목표 (성공한 주 단위)
+                    </label>
+                    <span className="text-[11px] text-teal-700 font-bold">
+                      월 {editTargetWeeksPerMonth}주 성공 목표
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-5 gap-1.5 mb-1.5">
+                    {[1, 2, 3, 4, 5].map((w) => (
+                      <button
+                        key={w}
+                        type="button"
+                        onClick={() => setEditTargetWeeksPerMonth(w)}
+                        className={`py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                          editTargetWeeksPerMonth === w
+                            ? 'bg-teal-600 text-white shadow-xs'
+                            : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
+                        }`}
+                      >
+                        {w}주 성공
+                      </button>
+                    ))}
+                  </div>
+
+                  <p className="text-[11px] text-slate-500 mt-1 leading-relaxed">
+                    한 달 중 주간 목표(주 {editTargetPerWeek}회 실천)를 달성한 주의 개수를 월간 목표로 측정합니다. (예: 월 4주 성공)
+                  </p>
+                </div>
+              )}
 
               {/* Category & Color */}
               <div>

@@ -43,17 +43,20 @@
     },
     "GroupChecklist": {
       "title": "GroupChecklist",
-      "description": "Group calendar checklist item with weekly tracking",
+      "description": "Group calendar checklist item with weekly and monthly target tracking",
       "type": "object",
       "properties": {
         "groupId": { "type": "string" },
         "title": { "type": "string" },
+        "targetType": { "type": "string" },
         "targetPerWeek": { "type": "number" },
+        "targetPerMonth": { "type": "number" },
+        "category": { "type": "string" },
         "color": { "type": "string" },
         "creatorUsername": { "type": "string" },
         "completedDates": { "type": "array" }
       },
-      "required": ["groupId", "title", "targetPerWeek", "creatorUsername"]
+      "required": ["groupId", "title", "creatorUsername"]
     }
   },
   "firestore": {

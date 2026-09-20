@@ -14,7 +14,8 @@ import {
   Loader2,
   CalendarDays,
   CalendarRange,
-  Palette
+  Palette,
+  CheckSquare
 } from 'lucide-react';
 import { 
   collection, 
@@ -27,6 +28,8 @@ import {
 import { db } from '../firebase';
 import { useAuth } from '../context/AuthContext';
 import type { Group, GroupCalendarEvent } from '../types';
+import CalendarChecklistView from './CalendarChecklistView';
+import ScheduleAwareDatePicker from './ScheduleAwareDatePicker';
 import { 
   getMonthCalendarMatrix, 
   toDateString, 
@@ -74,6 +77,7 @@ export default function GroupCalendar({ group }: GroupCalendarProps) {
   const [currentYear, setCurrentYear] = useState<number>(new Date().getFullYear());
   const [currentMonth, setCurrentMonth] = useState<number>(new Date().getMonth()); // 0-indexed
   const [selectedDateString, setSelectedDateString] = useState<string>(toDateString(new Date()));
+  const [calendarSubView, setCalendarSubView] = useState<'schedule' | 'checklist'>('schedule');
 
   const [events, setEvents] = useState<GroupCalendarEvent[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
@@ -81,6 +85,7 @@ export default function GroupCalendar({ group }: GroupCalendarProps) {
 
   // Add Event Modal State
   const [isAddModalOpen, setIsAddModalOpen] = useState<boolean>(false);
+  const [addDateMode, setAddDateMode] = useState<'calendar' | 'input'>('calendar');
   const [newTitle, setNewTitle] = useState<string>('');
   const [newStartDate, setNewStartDate] = useState<string>(selectedDateString);
   const [newEndDate, setNewEndDate] = useState<string>(selectedDateString);
@@ -93,6 +98,7 @@ export default function GroupCalendar({ group }: GroupCalendarProps) {
 
   // Edit Event State
   const [editingEventId, setEditingEventId] = useState<string | null>(null);
+  const [editDateMode, setEditDateMode] = useState<'calendar' | 'input'>('calendar');
   const [highlightedEventId, setHighlightedEventId] = useState<string | null>(null);
   const [editTitle, setEditTitle] = useState<string>('');
   const [editStartDate, setEditStartDate] = useState<string>('');
@@ -200,6 +206,7 @@ export default function GroupCalendar({ group }: GroupCalendarProps) {
     const targetDate = dateStr || selectedDateString || toDateString(new Date());
     setNewStartDate(targetDate);
     setNewEndDate(targetDate);
+    setAddDateMode('calendar');
     setNewTitle('');
     setNewTime('');
     setNewCategory('');
@@ -274,6 +281,7 @@ export default function GroupCalendar({ group }: GroupCalendarProps) {
   // Start Editing Event
   const handleStartEdit = (event: GroupCalendarEvent) => {
     setEditingEventId(event.id);
+    setEditDateMode('calendar');
     setEditTitle(event.title);
     setEditStartDate(event.startDate || event.date || selectedDateString);
     setEditEndDate(event.endDate || event.startDate || event.date || selectedDateString);
@@ -574,10 +582,60 @@ export default function GroupCalendar({ group }: GroupCalendarProps) {
         </div>
       )}
 
-      {/* Grid: Calendar Matrix on Left / Selected Day Schedules on Right */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 sm:gap-5">
+      {/* Sub-view switcher: [ 📅 일정 달력 (Bar) ] vs [ ✓ 달력 체크리스트 ] */}
+      <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2.5 bg-slate-50/80 p-2 rounded-2xl border border-slate-200">
+        <div className="flex items-center gap-1.5 p-1 bg-slate-200/70 rounded-xl">
+          <button
+            type="button"
+            id="calendar-subview-schedule-btn"
+            onClick={() => setCalendarSubView('schedule')}
+            className={`px-3.5 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
+              calendarSubView === 'schedule'
+                ? 'bg-white text-blue-700 shadow-2xs'
+                : 'text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            <CalendarIcon className="w-3.5 h-3.5 text-blue-600" />
+            <span>일정 달력</span>
+            <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-blue-100 text-blue-700">
+              {events.length}
+            </span>
+          </button>
+          <button
+            type="button"
+            id="calendar-subview-checklist-btn"
+            onClick={() => setCalendarSubView('checklist')}
+            className={`px-3.5 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
+              calendarSubView === 'checklist'
+                ? 'bg-white text-emerald-700 shadow-2xs'
+                : 'text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            <CheckSquare className="w-3.5 h-3.5 text-emerald-600" />
+            <span>달력 체크리스트</span>
+            <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-emerald-100 text-emerald-700 font-semibold">
+              주간/월간 목표 %
+            </span>
+          </button>
+        </div>
+        <p className="text-[11px] text-slate-500 px-1">
+          {calendarSubView === 'schedule'
+            ? '당일 및 연속 기간 일정이 달력에 직관적인 Bar 형태로 표시됩니다.'
+            : '일정과 분리된 주간 요일별 실천 및 이번 달 누적 목표 달성률(%)을 관리합니다.'}
+        </p>
+      </div>
+
+      {calendarSubView === 'checklist' ? (
+        <CalendarChecklistView 
+          group={group} 
+          selectedDateString={selectedDateString} 
+          onSelectDate={(d) => setSelectedDateString(d)} 
+        />
+      ) : (
+        /* Grid: Calendar Matrix on Left / Selected Day Schedules on Right */
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 sm:gap-5">
         {/* Monthly Calendar Matrix (7 columns) */}
-        <div className="lg:col-span-7 bg-slate-50/70 rounded-xl sm:rounded-2xl p-1 sm:p-3.5 border border-slate-200">
+        <div className="lg:col-span-7 bg-slate-50/70 rounded-xl sm:rounded-2xl p-1 sm:p-3.5 border border-slate-200 relative isolate">
           {/* Day of Week Headers */}
           <div className="grid grid-cols-7 gap-0.5 sm:gap-1 text-center mb-1">
             {['일', '월', '화', '수', '목', '금', '토'].map((day, idx) => (
@@ -736,7 +794,7 @@ export default function GroupCalendar({ group }: GroupCalendarProps) {
 
                   {/* Layer 2: Event Bars Overlay (All events displayed dynamically) */}
                   <div
-                    className="absolute left-0 right-0 top-[24px] sm:top-[28px] grid grid-cols-7 gap-0.5 sm:gap-1 pointer-events-none px-0.5 sm:px-1 z-20"
+                    className="absolute left-0 right-0 top-[24px] sm:top-[28px] grid grid-cols-7 gap-0.5 sm:gap-1 pointer-events-none px-0.5 sm:px-1 z-10"
                     style={{
                       gridTemplateRows: `repeat(${weekLayout.totalTracks}, minmax(18px, 20px))`,
                       rowGap: '2px',
@@ -758,21 +816,15 @@ export default function GroupCalendar({ group }: GroupCalendarProps) {
                       return (
                         <div
                           key={`${ev.id}_${wIdx}_${p.track}`}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setSelectedDateString(ev.startDate || week[p.startCol].dateString);
-                            setHighlightedEventId(ev.id);
-                          }}
                           style={{
                             gridColumn: `${p.startCol + 1} / span ${p.span}`,
                             gridRow: `${p.track + 1}`,
                           }}
-                          className={`pointer-events-auto h-[18px] sm:h-[20px] flex items-center text-[10px] sm:text-[11px] font-medium transition-all hover:scale-[1.005] cursor-pointer shadow-2xs border ${
+                          className={`pointer-events-none h-[18px] sm:h-[20px] flex items-center text-[10px] sm:text-[11px] font-medium shadow-2xs border select-none ${
                             style.bg
                           } ${style.color} ${style.border} ${leftRounded} ${rightRounded} ${
-                            isHighlighted ? 'ring-2 ring-blue-500 font-bold z-30' : ''
+                            isHighlighted ? 'ring-2 ring-blue-500 font-bold z-20' : ''
                           }`}
-                          title={`${ev.title} (${formatDateRange(ev.startDate, ev.endDate)})`}
                         >
                           {p.continuesFromPrevWeek && (
                             <span className="text-[9px] font-bold text-slate-400 mr-0.5 flex-shrink-0">‹</span>
@@ -871,31 +923,77 @@ export default function GroupCalendar({ group }: GroupCalendarProps) {
                       </div>
 
                       {/* Date Range in Edit */}
-                      <div className="grid grid-cols-2 gap-2">
-                        <div>
-                          <label className="block text-[11px] font-semibold text-slate-600 mb-0.5">시작 날짜</label>
-                          <input
-                            type="date"
-                            value={editStartDate}
-                            onChange={(e) => {
-                              setEditStartDate(e.target.value);
-                              if (!editEndDate || editEndDate < e.target.value) {
-                                setEditEndDate(e.target.value);
-                              }
+                      <div className="space-y-1.5">
+                        <div className="flex items-center justify-between">
+                          <label className="block text-[11px] font-semibold text-slate-700 flex items-center gap-1">
+                            <CalendarRange className="w-3.5 h-3.5 text-blue-600" />
+                            <span>일정 기간 설정</span>
+                          </label>
+                          <div className="flex items-center gap-1 bg-slate-100 p-0.5 rounded-lg text-[10px]">
+                            <button
+                              type="button"
+                              onClick={() => setEditDateMode('calendar')}
+                              className={`px-1.5 py-0.5 rounded font-medium transition-all cursor-pointer ${
+                                editDateMode === 'calendar'
+                                  ? 'bg-white text-blue-700 shadow-2xs font-bold'
+                                  : 'text-slate-600 hover:text-slate-900'
+                              }`}
+                            >
+                              📅 달력 선택
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setEditDateMode('input')}
+                              className={`px-1.5 py-0.5 rounded font-medium transition-all cursor-pointer ${
+                                editDateMode === 'input'
+                                  ? 'bg-white text-blue-700 shadow-2xs font-bold'
+                                  : 'text-slate-600 hover:text-slate-900'
+                              }`}
+                            >
+                              ⌨️ 직접 입력
+                            </button>
+                          </div>
+                        </div>
+
+                        {editDateMode === 'calendar' ? (
+                          <ScheduleAwareDatePicker
+                            startDate={editStartDate}
+                            endDate={editEndDate}
+                            onChangeRange={(s, e) => {
+                              setEditStartDate(s);
+                              setEditEndDate(e);
                             }}
-                            className="w-full px-2 py-1 text-xs border border-slate-200 rounded-lg font-mono"
+                            events={events}
+                            excludeEventId={ev.id}
                           />
-                        </div>
-                        <div>
-                          <label className="block text-[11px] font-semibold text-slate-600 mb-0.5">종료 날짜</label>
-                          <input
-                            type="date"
-                            value={editEndDate}
-                            min={editStartDate}
-                            onChange={(e) => setEditEndDate(e.target.value)}
-                            className="w-full px-2 py-1 text-xs border border-slate-200 rounded-lg font-mono"
-                          />
-                        </div>
+                        ) : (
+                          <div className="grid grid-cols-2 gap-2 bg-slate-50 p-2 rounded-xl border border-slate-200">
+                            <div>
+                              <label className="block text-[10px] font-semibold text-slate-600 mb-0.5">시작 날짜</label>
+                              <input
+                                type="date"
+                                value={editStartDate}
+                                onChange={(e) => {
+                                  setEditStartDate(e.target.value);
+                                  if (!editEndDate || editEndDate < e.target.value) {
+                                    setEditEndDate(e.target.value);
+                                  }
+                                }}
+                                className="w-full px-2 py-1 text-xs border border-slate-200 rounded-lg font-mono bg-white"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-[10px] font-semibold text-slate-600 mb-0.5">종료 날짜</label>
+                              <input
+                                type="date"
+                                value={editEndDate}
+                                min={editStartDate}
+                                onChange={(e) => setEditEndDate(e.target.value)}
+                                className="w-full px-2 py-1 text-xs border border-slate-200 rounded-lg font-mono bg-white"
+                              />
+                            </div>
+                          </div>
+                        )}
                       </div>
 
                       {/* Custom Category & Color in Edit */}
@@ -1055,11 +1153,12 @@ export default function GroupCalendar({ group }: GroupCalendarProps) {
           )}
         </div>
       </div>
+      )}
 
       {/* Add Event Modal */}
       {isAddModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-900/50 backdrop-blur-xs">
-          <div className="bg-white rounded-2xl w-full max-w-md shadow-xl border border-slate-200 overflow-hidden max-h-[92vh] flex flex-col animate-in fade-in zoom-in-95 duration-150">
+          <div className="bg-white rounded-2xl w-full max-w-xl sm:max-w-2xl shadow-xl border border-slate-200 overflow-hidden max-h-[92vh] flex flex-col animate-in fade-in zoom-in-95 duration-150">
             <div className="flex items-center justify-between p-4 sm:p-5 border-b border-slate-100 flex-shrink-0">
               <div className="flex items-center gap-2">
                 <div className="w-8 h-8 bg-blue-100 text-blue-600 rounded-lg flex items-center justify-center flex-shrink-0">
@@ -1067,7 +1166,7 @@ export default function GroupCalendar({ group }: GroupCalendarProps) {
                 </div>
                 <div>
                   <h3 className="font-bold text-slate-900 text-base">새 일정 등록</h3>
-                  <p className="text-[11px] text-slate-500">시작일과 종료일을 지정하여 등록할 수 있습니다.</p>
+                  <p className="text-[11px] text-slate-500">달력에서 시작일과 종료일을 손쉽게 선택할 수 있습니다.</p>
                 </div>
               </div>
               <button
@@ -1103,91 +1202,127 @@ export default function GroupCalendar({ group }: GroupCalendarProps) {
                 />
               </div>
 
-              {/* Date Range: Start Date to End Date */}
-              <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 space-y-2">
+              {/* Date Range: Schedule-Aware Visual Date Picker */}
+              <div className="space-y-2">
                 <div className="flex items-center justify-between">
                   <span className="text-xs font-semibold text-slate-700 flex items-center gap-1.5">
                     <CalendarRange className="w-3.5 h-3.5 text-blue-600" />
-                    일정 기간 설정 <span className="text-red-500">*</span>
+                    <span>일정 기간 설정</span>
+                    <span className="text-red-500">*</span>
                   </span>
-                  <span className="text-[11px] font-bold text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full border border-blue-100">
-                    {dayDuration === 1 ? '당일 일정 (1일)' : `총 ${dayDuration}일간의 일정`}
-                  </span>
-                </div>
-
-                <div className="grid grid-cols-2 gap-2.5">
-                  <div>
-                    <label className="block text-[11px] font-medium text-slate-500 mb-1">
-                      시작 날짜
-                    </label>
-                    <input
-                      type="date"
-                      required
-                      value={newStartDate}
-                      onChange={(e) => handleStartDateChange(e.target.value)}
-                      className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs sm:text-sm font-mono focus:outline-hidden focus:ring-2 focus:ring-blue-500"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-[11px] font-medium text-slate-500 mb-1">
-                      종료 날짜
-                    </label>
-                    <input
-                      type="date"
-                      required
-                      value={newEndDate}
-                      min={newStartDate}
-                      onChange={(e) => setNewEndDate(e.target.value)}
-                      className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs sm:text-sm font-mono focus:outline-hidden focus:ring-2 focus:ring-blue-500"
-                    />
+                  <div className="flex items-center gap-1 bg-slate-100 p-0.5 rounded-lg text-[11px]">
+                    <button
+                      type="button"
+                      onClick={() => setAddDateMode('calendar')}
+                      className={`px-2 py-0.5 rounded font-medium transition-all cursor-pointer ${
+                        addDateMode === 'calendar'
+                          ? 'bg-white text-blue-700 shadow-2xs font-bold'
+                          : 'text-slate-600 hover:text-slate-900'
+                      }`}
+                    >
+                      📅 달력 선택
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setAddDateMode('input')}
+                      className={`px-2 py-0.5 rounded font-medium transition-all cursor-pointer ${
+                        addDateMode === 'input'
+                          ? 'bg-white text-blue-700 shadow-2xs font-bold'
+                          : 'text-slate-600 hover:text-slate-900'
+                      }`}
+                    >
+                      ⌨️ 직접 입력
+                    </button>
                   </div>
                 </div>
 
-                {/* Quick range helpers */}
-                <div className="flex items-center gap-1.5 pt-1 text-[11px]">
-                  <span className="text-slate-400">빠른 기간:</span>
-                  <button
-                    type="button"
-                    onClick={() => setNewEndDate(newStartDate)}
-                    className="px-2 py-0.5 bg-white border border-slate-200 hover:bg-slate-100 rounded text-slate-600 cursor-pointer"
-                  >
-                    당일
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const d = new Date(newStartDate + 'T00:00:00');
-                      d.setDate(d.getDate() + 1);
-                      setNewEndDate(toDateString(d));
+                {addDateMode === 'calendar' ? (
+                  <ScheduleAwareDatePicker
+                    startDate={newStartDate}
+                    endDate={newEndDate}
+                    onChangeRange={(s, e) => {
+                      setNewStartDate(s);
+                      setNewEndDate(e);
                     }}
-                    className="px-2 py-0.5 bg-white border border-slate-200 hover:bg-slate-100 rounded text-slate-600 cursor-pointer"
-                  >
-                    2일
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const d = new Date(newStartDate + 'T00:00:00');
-                      d.setDate(d.getDate() + 2);
-                      setNewEndDate(toDateString(d));
-                    }}
-                    className="px-2 py-0.5 bg-white border border-slate-200 hover:bg-slate-100 rounded text-slate-600 cursor-pointer"
-                  >
-                    3일
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const d = new Date(newStartDate + 'T00:00:00');
-                      d.setDate(d.getDate() + 6);
-                      setNewEndDate(toDateString(d));
-                    }}
-                    className="px-2 py-0.5 bg-white border border-slate-200 hover:bg-slate-100 rounded text-slate-600 cursor-pointer"
-                  >
-                    1주일
-                  </button>
-                </div>
+                    events={events}
+                  />
+                ) : (
+                  <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 space-y-2">
+                    <div className="grid grid-cols-2 gap-2.5">
+                      <div>
+                        <label className="block text-[11px] font-medium text-slate-500 mb-1">
+                          시작 날짜
+                        </label>
+                        <input
+                          type="date"
+                          required
+                          value={newStartDate}
+                          onChange={(e) => handleStartDateChange(e.target.value)}
+                          className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs sm:text-sm font-mono focus:outline-hidden focus:ring-2 focus:ring-blue-500"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-[11px] font-medium text-slate-500 mb-1">
+                          종료 날짜
+                        </label>
+                        <input
+                          type="date"
+                          required
+                          value={newEndDate}
+                          min={newStartDate}
+                          onChange={(e) => setNewEndDate(e.target.value)}
+                          className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs sm:text-sm font-mono focus:outline-hidden focus:ring-2 focus:ring-blue-500"
+                        />
+                      </div>
+                    </div>
+
+                    {/* Quick range helpers */}
+                    <div className="flex items-center gap-1.5 pt-1 text-[11px]">
+                      <span className="text-slate-400">빠른 기간:</span>
+                      <button
+                        type="button"
+                        onClick={() => setNewEndDate(newStartDate)}
+                        className="px-2 py-0.5 bg-white border border-slate-200 hover:bg-slate-100 rounded text-slate-600 cursor-pointer"
+                      >
+                        당일
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const d = new Date(newStartDate + 'T00:00:00');
+                          d.setDate(d.getDate() + 1);
+                          setNewEndDate(toDateString(d));
+                        }}
+                        className="px-2 py-0.5 bg-white border border-slate-200 hover:bg-slate-100 rounded text-slate-600 cursor-pointer"
+                      >
+                        2일
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const d = new Date(newStartDate + 'T00:00:00');
+                          d.setDate(d.getDate() + 2);
+                          setNewEndDate(toDateString(d));
+                        }}
+                        className="px-2 py-0.5 bg-white border border-slate-200 hover:bg-slate-100 rounded text-slate-600 cursor-pointer"
+                      >
+                        3일
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const d = new Date(newStartDate + 'T00:00:00');
+                          d.setDate(d.getDate() + 6);
+                          setNewEndDate(toDateString(d));
+                        }}
+                        className="px-2 py-0.5 bg-white border border-slate-200 hover:bg-slate-100 rounded text-slate-600 cursor-pointer"
+                      >
+                        1주일
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* Time */}

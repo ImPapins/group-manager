@@ -1,0 +1,9 @@
+[build]
+  publish = "dist"
+  command = "npm run build"
+
+# SPA redirect rule so client-side routing and page refresh work seamlessly
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200

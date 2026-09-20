@@ -19,8 +19,8 @@ import {
   ArrowLeft,
   ChevronRight,
   Calendar,
-  LayoutDashboard,
-  Layers
+  Layers,
+  CheckSquare
 } from 'lucide-react';
 import { 
   collection, 
@@ -36,7 +36,7 @@ import {
 import { db } from '../firebase';
 import type { Group, GroupMember } from '../types';
 import GroupCalendar from './GroupCalendar';
-import GroupDashboardView from './GroupDashboardView';
+import CalendarChecklistView from './CalendarChecklistView';
 
 export default function GroupManager() {
   const { username, displayName, logout } = useAuth();
@@ -49,8 +49,8 @@ export default function GroupManager() {
   // When selectedGroupId has an id -> show that group's "그룹 페이지"
   const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null);
 
-  // Group Detail Tab State ('dashboard' | 'calendar' | 'members' | 'all')
-  const [activeGroupTab, setActiveGroupTab] = useState<'dashboard' | 'calendar' | 'members' | 'all'>('dashboard');
+  // Group Detail Tab State ('calendar' | 'checklist' | 'members' | 'all')
+  const [activeGroupTab, setActiveGroupTab] = useState<'calendar' | 'checklist' | 'members' | 'all'>('calendar');
 
   // Create Group Modal State
   const [isCreateModalOpen, setIsCreateModalOpen] = useState<boolean>(false);
@@ -359,7 +359,7 @@ export default function GroupManager() {
   return (
     <div className="min-h-screen bg-slate-100 text-slate-800 flex flex-col">
       {/* Global Header */}
-      <header className="bg-white border-b border-slate-200 sticky top-0 z-30 shadow-xs">
+      <header className="bg-white border-b border-slate-200 sticky top-0 z-50 shadow-xs">
         <div className="max-w-5xl mx-auto px-3 sm:px-6 h-14 sm:h-16 flex items-center justify-between gap-2">
           <div className="flex items-center gap-2.5 sm:gap-3 min-w-0">
             <div className="w-8 h-8 sm:w-10 sm:h-10 bg-blue-600 rounded-xl flex items-center justify-center text-white shadow-xs shadow-blue-500/20 flex-shrink-0">
@@ -522,75 +522,78 @@ export default function GroupManager() {
             </div>
 
             {/* Sticky Tab Navigation Bar for Mobile and Desktop */}
-            <div className="sticky top-14 sm:top-16 z-20 bg-slate-100/95 backdrop-blur-md py-1 sm:py-1.5 -mx-1 px-1 border-b border-slate-200/80 shadow-2xs">
+            <div className="sticky top-14 sm:top-16 z-40 bg-slate-100/95 backdrop-blur-md py-1 sm:py-1.5 -mx-1 px-1 border-b border-slate-200/80 shadow-2xs">
               <div className="grid grid-cols-4 gap-1 p-1 bg-slate-200/80 rounded-2xl">
-                <button
-                  type="button"
-                  id="tab-dashboard-btn"
-                  onClick={() => setActiveGroupTab('dashboard')}
-                  className={`py-2 px-1 sm:px-3 rounded-xl text-xs sm:text-sm font-bold flex items-center justify-center gap-1 sm:gap-1.5 transition-all cursor-pointer active:scale-[0.98] ${
-                    activeGroupTab === 'dashboard'
-                      ? 'bg-white text-emerald-700 shadow-xs'
-                      : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
-                  }`}
-                >
-                  <LayoutDashboard className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-emerald-600 flex-shrink-0" />
-                  <span className="truncate">대시보드</span>
-                </button>
-
                 <button
                   type="button"
                   id="tab-calendar-btn"
                   onClick={() => setActiveGroupTab('calendar')}
-                  className={`py-2 px-1 sm:px-3 rounded-xl text-xs sm:text-sm font-bold flex items-center justify-center gap-1 sm:gap-1.5 transition-all cursor-pointer active:scale-[0.98] ${
+                  className={`py-2.5 sm:py-2 px-1 sm:px-3 rounded-xl text-xs sm:text-sm font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer active:scale-[0.98] ${
                     activeGroupTab === 'calendar'
                       ? 'bg-white text-blue-700 shadow-xs'
                       : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
                   }`}
+                  title="달력"
                 >
-                  <Calendar className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-blue-600 flex-shrink-0" />
-                  <span className="truncate">달력</span>
+                  <Calendar className="w-4 h-4 sm:w-4 sm:h-4 text-blue-600 flex-shrink-0" />
+                  <span className="hidden sm:inline truncate">달력</span>
+                </button>
+
+                <button
+                  type="button"
+                  id="tab-checklist-btn"
+                  onClick={() => setActiveGroupTab('checklist')}
+                  className={`py-2.5 sm:py-2 px-1 sm:px-3 rounded-xl text-xs sm:text-sm font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer active:scale-[0.98] ${
+                    activeGroupTab === 'checklist'
+                      ? 'bg-white text-emerald-700 shadow-xs'
+                      : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
+                  }`}
+                  title="체크리스트"
+                >
+                  <CheckSquare className="w-4 h-4 sm:w-4 sm:h-4 text-emerald-600 flex-shrink-0" />
+                  <span className="hidden sm:inline truncate">체크리스트</span>
                 </button>
 
                 <button
                   type="button"
                   id="tab-members-btn"
                   onClick={() => setActiveGroupTab('members')}
-                  className={`py-2 px-1 sm:px-3 rounded-xl text-xs sm:text-sm font-bold flex items-center justify-center gap-1 sm:gap-1.5 transition-all cursor-pointer active:scale-[0.98] ${
+                  className={`py-2.5 sm:py-2 px-1 sm:px-3 rounded-xl text-xs sm:text-sm font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer active:scale-[0.98] ${
                     activeGroupTab === 'members'
                       ? 'bg-white text-indigo-700 shadow-xs'
                       : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
                   }`}
+                  title="멤버"
                 >
-                  <Users className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-indigo-600 flex-shrink-0" />
-                  <span className="truncate sm:hidden">멤버</span>
-                  <span className="truncate hidden sm:inline">멤버 ({selectedGroup.members.length})</span>
+                  <Users className="w-4 h-4 sm:w-4 sm:h-4 text-indigo-600 flex-shrink-0" />
+                  <span className="hidden sm:inline truncate">멤버 ({selectedGroup.members.length})</span>
                 </button>
 
                 <button
                   type="button"
                   id="tab-all-btn"
                   onClick={() => setActiveGroupTab('all')}
-                  className={`py-2 px-1 sm:px-3 rounded-xl text-xs sm:text-sm font-bold flex items-center justify-center gap-1 sm:gap-1.5 transition-all cursor-pointer active:scale-[0.98] ${
+                  className={`py-2.5 sm:py-2 px-1 sm:px-3 rounded-xl text-xs sm:text-sm font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer active:scale-[0.98] ${
                     activeGroupTab === 'all'
                       ? 'bg-white text-slate-800 shadow-xs'
                       : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
                   }`}
+                  title="전체"
                 >
-                  <Layers className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-slate-500 flex-shrink-0" />
-                  <span className="truncate">전체</span>
+                  <Layers className="w-4 h-4 sm:w-4 sm:h-4 text-slate-500 flex-shrink-0" />
+                  <span className="hidden sm:inline truncate">전체</span>
                 </button>
               </div>
             </div>
 
-            {/* Tab 1: 대시보드 (Group Shared Dashboard with Cycle Reset & Past Records) */}
-            {(activeGroupTab === 'dashboard' || activeGroupTab === 'all') && (
-              <GroupDashboardView group={selectedGroup} />
-            )}
-
-            {/* Tab 2: 그룹 공용 달력 (Group Shared Calendar) */}
+            {/* Tab 1: 그룹 공용 달력 (Group Shared Calendar) */}
             {(activeGroupTab === 'calendar' || activeGroupTab === 'all') && (
               <GroupCalendar group={selectedGroup} />
+            )}
+
+            {/* Tab 2: 달력 체크리스트 (Group Calendar Checklist with weekly/monthly % targets) */}
+            {(activeGroupTab === 'checklist' || activeGroupTab === 'all') && (
+              <CalendarChecklistView group={selectedGroup} />
             )}
 
             {/* Tab 3: 그룹 멤버 관리 및 초대 */}

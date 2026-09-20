@@ -45,7 +45,10 @@ export interface GroupCalendarChecklist {
   id: string;
   groupId: string;
   title: string;
-  targetPerWeek: number; // e.g. 1 ~ 7 times per week (default 3 or 7)
+  targetType?: 'weekly' | 'monthly' | 'both'; // Type of goal tracking (default: 'both')
+  targetPerWeek?: number; // e.g. 1 ~ 7 times per week (default 3)
+  targetWeeksPerMonth?: number; // e.g. 1 ~ 5 successful weeks target in a month (default 4 or 3)
+  targetPerMonth?: number; // legacy support
   category?: string;
   color?: string; // Color key for badge/styling
   creatorUsername: string;
